@@ -60,8 +60,11 @@ void setup() {
 // MAIN
 void loop() {
 
-  // Reads again
+  // Reads
   float temp = bme.readTemperature();
+  //float p = bme.readPressure();
+  //float hum = bme.readHumidity();
+
   Serial.printf("Sending Temp to broker: %.2f \n", temp);
 
   // Converts float to char

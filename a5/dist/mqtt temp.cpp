@@ -66,7 +66,7 @@ void loop() {
 
   // Converts float to char
   char buffer[4];
-  memcpy(&buffer, &temp, 4);
+  snprintf(buffer, sizeof(buffer), "%.2f", temp);
 
   // Sends
   mqttClient.publish("adn/group32/temp", 0, false, buffer);
