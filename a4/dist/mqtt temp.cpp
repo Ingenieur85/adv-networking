@@ -60,8 +60,11 @@ void setup() {
 // MAIN
 void loop() {
 
-  // Reads again
+  // Reads
   float temp = bme.readTemperature();
+  float p = bme.readPressure();
+  float hum = bme.readHumidity();
+
   Serial.printf("Sending Temp to broker: %.2f \n", temp);
 
   // Converts float to char
@@ -69,7 +72,7 @@ void loop() {
   memcpy(&buffer, &temp, 4);
 
   // Sends
-  mqttClient.publish("adn/group32/temp", 0, false, buffer);
+  mqttClient.publish("adn/group32/temp", 0, false, buffer, 4);
 
   // Waits 5 seconds to read again
   delay(5000);

@@ -72,7 +72,7 @@ void loop() {
   memcpy(&buffer, &temp, 4);
 
   // Sends
-  mqttClient.publish("adn/group32/temp", 0, false, buffer);
+  mqttClient.publish("adn/group32/temp", 0, false, buffer, 4);
 
   // Waits 5 seconds to read again
   delay(5000);
