@@ -60,22 +60,16 @@ void setup() {
 // MAIN
 void loop() {
 
-  // Reads
+  // Reads again
   float temp = bme.readTemperature();
-  float p = bme.readPressure();
-  float hum = bme.readHumidity();
+  Serial.printf("Sending Temp to broker: %.2f \n", temp);
 
-  Serial.printf("Sending Temp, pressure, humidity to broker: %.2f  %.2f  %.2f \n", temp, p, hum);
-
-  // Builds payload
-  char buffer[12];
-  memcpy(&buffer[0], &temp, sizeof(float));
-  memcpy(&buffer[4], &p, sizeof(float));
-  memcpy(&buffer[8], &hum, sizeof(float));
-
+  // Converts float to char
+  char buffer[4];
+  memcpy(&buffer, &temp, 4);
 
   // Sends
-  mqttClient.publish("adn/group32/temp", 0, false, buffer, 12);
+  mqttClient.publish("adn/group32/temp", 0, false, buffer);
 
   // Waits 5 seconds to read again
   delay(5000);
