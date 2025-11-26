@@ -83,7 +83,6 @@ void loop() {
 
 
 
-
 void onMqttConnect(bool sessionPresent) {
   Serial.println("MQTT Connected.");
   digitalWrite(LED_BUILTIN, HIGH);
