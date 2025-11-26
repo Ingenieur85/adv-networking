@@ -78,7 +78,7 @@ void loop() {
   mqttClient.publish("adn/group32/temp", 0, false, buffer, 12);
 
   // Waits 5 seconds to read again
-  delay(5000);
+  delay(30000);
 }
 
 
