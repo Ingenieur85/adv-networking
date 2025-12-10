@@ -4,6 +4,7 @@
 
 //wimod comm.
 #include <HardwareSerial.h>
+#include <TinyGPS++.h>
 HardwareSerial loraSerial(2);
 #define WIMOD_IF    loraSerial
 #define WIMOD_IF_RX 23
@@ -15,7 +16,7 @@ uint8_t devEUI[8];
 #include <WiMODLoRaWAN.h> // make sure to use only the WiMODLoRaWAN.h, the WiMODLR_BASE.h must not be used for LoRaWAN firmware.
 WiMODLoRaWAN wimod(WIMOD_IF);
 
-const unsigned char APPEUI[] = { 0x70, 0xB3, 0xD5, 0x8F, 0xF1, 0x00, 0x4A, 0x2A };
+const unsigned char APPEUI[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11 };
 const unsigned char APPKEY[] = { 0xE4, 0x3E, 0xFF, 0xF6, 0x56, 0x9D, 0xEA, 0xE2, 0x9C, 0x7D, 0xD2, 0xA0, 0x3F, 0x63, 0xEC, 0xC3 };
 
 //LoRa app
@@ -23,6 +24,8 @@ boolean sendLora;
 unsigned long lastSent = 0;
 #define loraBytesSize 11
 byte loraBytes[loraBytesSize];
+TinyGPSPlus gps;
+HardwareSerial gpsSerial(1);
 
 // Typedefs
 typedef enum TModemState {
@@ -197,6 +200,9 @@ void setup()
   delay(100); wimod.Reset(); delay(100); // do a software reset of the WiMOD
   wimod.DeactivateDevice(); // deactivate device in order to get a clean start
 
+  // Gps Setup
+  gpsSerial.begin(9600, SERIAL_8N1, 16, 17);
+  delay(1000);
 
     if (wimod.GetDeviceEUI(devEUI)) {
     	debugMsg(F("\r\n"));
@@ -249,28 +255,89 @@ void loop()
 
   if(sendLora) {
     debugMsg(F("Sending...\n"));
-
-    // prepare TX data structure for string
-    txData.Port = 0x01;
-    txData.Length = loraBytesSize;
-	strcpy_P((char*) txData.Payload, PSTR("Hello World"));
-
-	// prepare TX data structure for bytes
-    //txData.Port = 0x02;
-    //txData.Length = loraBytesSize;
-    //memcpy(txData.Payload, loraBytes, txData.Length);
   
-    // try to send a message
-    if (false == wimod.SendUData(&txData)) { // an error occurred
-         if (LORAWAN_STATUS_CHANNEL_BLOCKED == wimod.GetLastResponseStatus()) {// we have got a duty cycle problem
-             debugMsg(F("TX failed: Blocked due to DutyCycle...\n"));
-         }
+    while(gpsSerial.available() > 0) gps.encode(gpsSerial.read());
+
+    double lat = gps.location.lat();
+    double lng = gps.location.lng();
+    double alt = gps.altitude.meters();
+    uint32_t hdop_raw = gps.hdop.value();
+    double hdop_display = (double)hdop_raw / 100.0;
+    uint32_t num_satellites = gps.satellites.value();
+    uint32_t age = gps.location.age();
+    uint32_t failed_checksums = gps.failedChecksum();
+    uint32_t processed_chars = gps.charsProcessed();
+
+    Serial.printf("--- GPS Status ---\n");
+    Serial.printf("Latitude: %.6f\n", lat);
+    Serial.printf("Longitude: %.6f\n", lng);
+    Serial.printf("Altitude: %.2f m\n", alt);
+    Serial.printf("HDOP: %.3f\n", hdop_display);
+    Serial.printf("Satellites: %u\n", num_satellites);
+    Serial.printf("Age: %u ms\n", age);
+    Serial.printf("Failed Checksums: %u\n", failed_checksums);
+    Serial.printf("Processed Chars: %u\n", processed_chars);
+    Serial.printf("------------------\n");
+
+    // Builds payload
+    if (gps.location.age() < 1000 && gps.location.lat() != 0.0) {
+      Serial.printf("Sending GPS data: Lat: %.6f, Lng: %.6f, Alt: %.2f, hdop_raw: %u \n", lat, lng, alt, hdop_raw);
+
+      // double lat /long -itude , 4 Byte , in degree (+ -90 Lat ; + -180 Long )
+      uint32_t latitudeBinary = (uint32_t)((gps.location.lat() + 90) * 10000000);
+      loraBytes[0] = (latitudeBinary >> 24) & 0xFF; // shift and take out 1 byte
+      loraBytes[1] = (latitudeBinary >> 16) & 0xFF;
+      loraBytes[2] = (latitudeBinary >> 8) & 0xFF;
+      loraBytes[3] = latitudeBinary & 0xFF ;
+      uint32_t longitudeBinary = (uint32_t)((gps.location.lng()+180) * 10000000);
+      loraBytes[4] = (longitudeBinary >> 24) & 0xFF ;
+      loraBytes[5] = (longitudeBinary >> 16) & 0xFF ;
+      loraBytes[6] = (longitudeBinary >> 8) & 0xFF ;
+      loraBytes[7] = longitudeBinary & 0xFF ;
+    
+      // double altitude , 4 Byte , in meters
+      uint16_t altitudeBinary =
+      (gps.altitude.meters() < 0) ? 0 : (uint16_t) gps.altitude.meters();
+      loraBytes[8] = (altitudeBinary >> 8) & 0xFF ;
+      loraBytes[9] = altitudeBinary & 0xFF ;
+    
+      // double hdop , 4 Byte , quality of position data
+      uint16_t hdopBinary = (uint16_t)gps.hdop.value()/10;
+      // HDOP in 1/10 m, decode with /10 to m (0 m to 25.5 m)
+      loraBytes[10] = hdopBinary & 0xFF ;
+
+      // Sends
+      // // prepare TX data structure for string
+      //   txData.Port = 0x01;
+      //   txData.Length = loraBytesSize;
+      //   strcpy_P((char*) txData.Payload, PSTR("Hello World"));
+
+      // prepare TX data structure for bytes
+      txData.Port = 0x02;
+      txData.Length = loraBytesSize;
+      memcpy(txData.Payload, loraBytes, txData.Length);
+    
+      // try to send a message
+      if (false == wimod.SendUData(&txData)) { // an error occurred
+        if (LORAWAN_STATUS_CHANNEL_BLOCKED == wimod.GetLastResponseStatus()) {// we have got a duty cycle problem
+            debugMsg(F("TX failed: Blocked due to DutyCycle...\n"));
+        }
+      } else {
+        lastSent = millis();
+      }
+    
+    
+
     } else {
-      lastSent = millis();
+      Serial.printf("Latitude: %.6f\n", gps.location.lat());
+      Serial.printf("Satellites: %u\n", gps.satellites.value());
+      Serial.printf("Age: %u ms\n", gps.location.age());
+      Serial.println("GPS not ready, not sending");
     }
   }
+
   // check for any pending data of the WiMOD
   wimod.Process();
-
-  delay(500);
+  // 3. Waits 5 seconds to read again (Blocking Delay)
+  delay(3000);
 }
